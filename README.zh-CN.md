@@ -69,35 +69,11 @@ Blender 自己的界面语言可以保持不变。双语写进当前 UI 正在�
 
 **Apply to All UI Languages** 默认关掉。除非经常切换 Blender 界面语言，否则不要勾——给每种语言都生成一份又慢又占磁盘。
 
-## 原理
-
-Blender 5.x 查官方 UI 时**先读 `blender.mo`**，命中后不会再走 `bpy.app.translations.register()`。所以本插件直接写一份 catalog 覆盖：
-
-1. 读取安装目录里的 `datafiles/locale/<locale>/LC_MESSAGES/blender.mo`
-2. 把官方文件备份到用户目录 `datafiles/bilingual_ui/original_mo/`
-3. 生成完整双语 `.mo`（未叠加的条目保留原文，避免掉回英文）
-4. 写入用户目录 `datafiles/locale/<locale>/LC_MESSAGES/blender.mo`（该路径优先于安装目录，不改 Program Files）
-5. 把它余语言用目录联接指回官方 catalog，避免用户 locale 根目录抢走查找路径后其它语言失效
-6. 重新加载当前语言，让 Blender 再跑一次 `locale::init`
-
-点 **Restore Original** 或禁用插件会去掉 overlay。生成过的 overlay 缓存在 `datafiles/bilingual_ui/cache/`，下次启动或切回同一对语言时直接复用。
-
-部分 C 端写死、不走翻译系统的字符串无法覆盖。
-
 ## 兼容
 
 - Blender 3.6+（`bl_info`）
 - Blender 4.2+（`blender_manifest.toml`）
 - 语言包随 Blender 安装走，先在偏好设置里启用对应语言再在这里选择
-
-## 开发
-
-```bash
-python -m unittest tests.test_mo -q
-python pack.py
-```
-
-`pack.py` 会在项目根目录写出 `bilingual_ui.zip`。
 
 ## 许可
 
