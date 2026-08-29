@@ -12,5 +12,5 @@ blender_version_min = "4.2.0"
 license = ["SPDX:GPL-3.0-or-later"]
 tags = ["User Interface"]
 
-website = "https://github.com/DaFuuu-22/blender-bilingual-ui"
+website = "https://github.com/AuraYoona/blender-bilingual-ui"
 copyright = ["2026 AuraYoona"]

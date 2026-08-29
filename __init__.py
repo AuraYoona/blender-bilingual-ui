@@ -48,7 +48,7 @@ bl_info = {
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
     "category": "Interface",
-    "doc_url": "https://github.com/DaFuuu-22/blender-bilingual-ui",
+    "doc_url": "https://github.com/AuraYoona/blender-bilingual-ui",
 }
 
 ADDON_ID = __name__

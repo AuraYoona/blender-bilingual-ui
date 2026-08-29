@@ -1,6 +1,6 @@
 # Bilingual UI
 
-[![CI](https://github.com/DaFuuu-22/blender-bilingual-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/DaFuuu-22/blender-bilingual-ui/actions/workflows/ci.yml)
+[![CI](https://github.com/AuraYoona/blender-bilingual-ui/actions/workflows/ci.yml/badge.svg)](https://github.com/AuraYoona/blender-bilingual-ui/actions/workflows/ci.yml)
 [![License: GPL-3.0-or-later](https://img.shields.io/badge/license-GPL--3.0--or--later-blue.svg)](LICENSE)
 
 Blender add-on that shows the interface in two languages at once.
@@ -13,7 +13,7 @@ Any pair of languages shipped with Blender works. The front language does not ha
 
 ## Install
 
-Download `bilingual_ui.zip` from [Releases](https://github.com/DaFuuu-22/blender-bilingual-ui/releases).
+Download `bilingual_ui.zip` from [Releases](https://github.com/AuraYoona/blender-bilingual-ui/releases).
 
 **Blender 4.2+**
 
