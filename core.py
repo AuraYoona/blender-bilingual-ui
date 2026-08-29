@@ -783,6 +783,7 @@ def overlay_folders_for(locale: str) -> List[str]:
     """User-locale directories to write so both ISO and short names resolve.
 
     Japanese UI is `ja_JP` but the official file is `locale/ja/`. Write both.
+    English has no blender.mo — never emit a folder for it.
     """
     folders: List[str] = []
 
@@ -793,6 +794,37 @@ def overlay_folders_for(locale: str) -> List[str]:
     add(canonical_locale(locale))
     add(locale_folder_name(locale))
     return folders
+
+
+def pick_host_locale(*candidates: str) -> str:
+    """First non-English locale that can hold a blender.mo overlay."""
+    seen = set()
+    for raw in candidates:
+        loc = canonical_locale(raw or "")
+        if not loc or loc in seen or is_english(loc):
+            continue
+        seen.add(loc)
+        if overlay_folders_for(loc):
+            return loc
+    return ""
+
+
+def set_ui_language(locale: str) -> bool:
+    """Point Blender's UI language at a catalog we can overlay."""
+    loc = canonical_locale(locale)
+    if not loc:
+        return False
+    prefs = bpy.context.preferences
+    if prefs is None:
+        return False
+    try:
+        if hasattr(prefs.view, "use_translate_interface"):
+            prefs.view.use_translate_interface = True
+        prefs.view.language = loc
+        redraw_ui()
+        return True
+    except Exception:
+        return False
 
 
 def build_translations_dict(
@@ -1303,6 +1335,12 @@ def install_overlays(
     overlay_folders = list(dict.fromkeys(overlay_folders))
 
     previous = unload_catalogs()
+    host = ""
+    for loc, cat in items:
+        if cat and overlay_folders_for(loc):
+            host = canonical_locale(loc)
+            break
+    restore_to = host if host else previous
     try:
         keep_paths = set()
         for loc, cat in items:
@@ -1329,8 +1367,11 @@ def install_overlays(
             stats["locales"] += 1
             stats["emitted"] += len(catalog)
 
+            folders = overlay_folders_for(locale)
+            if not folders:
+                continue
             written_any = False
-            for folder in overlay_folders_for(locale):
+            for folder in folders:
                 user_path = user_mo_path(locale, folder=folder)
                 if not user_path:
                     continue
@@ -1359,7 +1400,7 @@ def install_overlays(
             state["fingerprint"] = fingerprint
     finally:
         _save_state(state)
-        restore_language(previous)
+        restore_language(restore_to)
 
     return stats
 

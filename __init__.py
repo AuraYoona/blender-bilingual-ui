@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 3, 1),
+    "version": (1, 3, 2),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
@@ -353,7 +353,13 @@ def apply_bilingual(report=None) -> str:
         if report:
             report({"INFO"}, msg)
 
-    targets = _write_targets(prefs, front)
+    targets = _write_targets(prefs, front, back)
+    if not targets:
+        _status = (
+            "English has no translation catalog. Pick a non-English Front or Back language."
+        )
+        prefs.last_report = _status
+        return _status
     fingerprint = core.overlay_fingerprint(
         front,
         back,
@@ -368,6 +374,9 @@ def apply_bilingual(report=None) -> str:
     )
 
     if core.overlay_cache_hit(fingerprint, targets):
+        host = targets[0]
+        if core.canonical_locale(core.current_locale()) != core.canonical_locale(host):
+            core.set_ui_language(host)
         _registered = True
         _last_locale = core.current_locale()
         core.reload_current_language()
@@ -450,25 +459,34 @@ def _pair_from_prefs(prefs):
     return front, back
 
 
-def _write_targets(prefs, front: str) -> list[str]:
-    """Folders Blender will actually load — the current UI language, not the front language.
+def _write_targets(prefs, front: str, back: str = "") -> list[str]:
+    """Folders Blender will actually load.
 
-    A Japanese+English pair while the UI is Chinese must be written to zh_HANS,
-    otherwise the overlay never appears.
+    English has no blender.mo. If the UI is English, host the overlay in the
+    first non-English language of the pair and switch the UI to that locale.
     """
     if prefs.apply_all_locales:
         targets = [code for code, _label, mo in core.discover_locales() if mo]
         current = core.current_locale()
-        if current not in targets:
+        if current not in targets and not core.is_english(current):
             targets.append(current)
-        if front not in targets:
+        if front not in targets and not core.is_english(front):
             targets.append(front)
-        return targets
-    return [core.current_locale()]
+        return [t for t in targets if not core.is_english(t)]
+
+    current = core.current_locale()
+    if not core.is_english(current) and core.overlay_folders_for(current):
+        return [current]
+    host = core.pick_host_locale(front, back, current)
+    if host:
+        if core.canonical_locale(current) != host:
+            core.set_ui_language(host)
+        return [host]
+    return []
 
 
 def _build_overlay_items(prefs, front: str, back: str, progress):
-    targets = _write_targets(prefs, front)
+    targets = _write_targets(prefs, front, back)
     items = []
     totals = {"emitted": 0, "kept": 0, "locales": 0}
     display = getattr(prefs, "display_mode", "BILINGUAL")

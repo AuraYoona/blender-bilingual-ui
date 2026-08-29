@@ -206,6 +206,9 @@ class LocaleTests(unittest.TestCase):
             self.assertIn("ja", ja)
             zh = core_mod.overlay_folders_for("zh_HANS")
             self.assertEqual(zh, ["zh_HANS"])
+            self.assertEqual(core_mod.overlay_folders_for("en_US"), [])
+            self.assertEqual(core_mod.pick_host_locale("en_US", "zh_HANS"), "zh_HANS")
+            self.assertEqual(core_mod.pick_host_locale("en_US", "en_GB"), "")
         finally:
             core_mod.find_mo = orig
 
