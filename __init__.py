@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 3, 3),
+    "version": (1, 3, 4),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
@@ -358,7 +358,7 @@ def apply_bilingual(report=None) -> str:
         targets,
     )
 
-    if core.overlay_cache_hit(fingerprint, targets) or _cached_mo_ready(fingerprint):
+    if _cached_mo_ready(fingerprint):
         host = targets[0]
         if core.swap_overlay_files(fingerprint, targets):
             if core.canonical_locale(core.current_locale()) != core.canonical_locale(host):

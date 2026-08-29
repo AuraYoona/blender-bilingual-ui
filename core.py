@@ -1268,21 +1268,22 @@ def _try_replace_official(path: str, catalog: Catalog) -> bool:
 def unload_catalogs() -> str:
     """Unmap the current .mo so Windows can replace it.
 
-    Prefer DEFAULT over en_US: DEFAULT still unmaps the file without a full
-    English UI rebuild, which is what made Front→Back feel like a hitch.
+    DEFAULT is not enough: if the OS locale is Chinese, Blender keeps the
+    zh_HANS catalog mapped. Bounce through a real other language instead.
     """
     prefs = bpy.context.preferences
     if prefs is None:
         return ""
     view = prefs.view
     current = view.language
+    bounce = "en_US" if current not in {"en_US", "DEFAULT"} else "zh_HANS"
     try:
-        if current != "DEFAULT":
-            view.language = "DEFAULT"
-        else:
-            view.language = "en_US"
+        view.language = bounce
     except Exception:
-        return current
+        try:
+            view.language = "DEFAULT"
+        except Exception:
+            return current
     return current
 
 
@@ -1311,6 +1312,17 @@ def swap_overlay_files(fingerprint: str, targets: Iterable[str]) -> bool:
         written = list(state.get("user_written") or [])
         for path in paths:
             os.makedirs(os.path.dirname(path), exist_ok=True)
+            if os.path.isfile(path):
+                stale = path + ".old"
+                try:
+                    os.replace(path, stale)
+                except OSError:
+                    pass
+                else:
+                    try:
+                        os.remove(stale)
+                    except OSError:
+                        pass
             shutil.copy2(cache_mo, path)
             if path not in written:
                 written.append(path)
