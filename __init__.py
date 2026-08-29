@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 3, 2),
+    "version": (1, 3, 3),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
@@ -333,21 +333,6 @@ def apply_bilingual(report=None) -> str:
         return _status
 
     current = core.current_locale()
-    if not prefs.apply_all_locales:
-        if display == "FRONT" and core.canonical_locale(front) == current:
-            core.restore_overlays()
-            _registered = False
-            _last_locale = current
-            _status = f"Active [Front]: {_label_for(front)} (official catalog)"
-            prefs.last_report = _status
-            return _status
-        if display == "BACK" and core.canonical_locale(back) == current:
-            core.restore_overlays()
-            _registered = False
-            _last_locale = current
-            _status = f"Active [Back]: {_label_for(back)} (official catalog)"
-            prefs.last_report = _status
-            return _status
 
     def progress(msg: str):
         if report:
@@ -373,16 +358,17 @@ def apply_bilingual(report=None) -> str:
         targets,
     )
 
-    if core.overlay_cache_hit(fingerprint, targets):
+    if core.overlay_cache_hit(fingerprint, targets) or _cached_mo_ready(fingerprint):
         host = targets[0]
-        if core.canonical_locale(core.current_locale()) != core.canonical_locale(host):
-            core.set_ui_language(host)
-        _registered = True
-        _last_locale = core.current_locale()
-        core.reload_current_language()
-        _status = _format_status(display, front, back, cached=True)
-        prefs.last_report = _status
-        return _status
+        if core.swap_overlay_files(fingerprint, targets):
+            if core.canonical_locale(core.current_locale()) != core.canonical_locale(host):
+                core.set_ui_language(host)
+            _registered = True
+            _last_locale = core.current_locale()
+            _status = _format_status(display, front, back, cached=True)
+            prefs.last_report = _status
+            _schedule_warmup(prefs, front, back, targets)
+            return _status
 
     cached_mo = core.cached_overlay_path(fingerprint)
     catalog = None
@@ -425,6 +411,7 @@ def apply_bilingual(report=None) -> str:
         display, front, back, stats=stats, written=written, cached=bool(catalog)
     )
     prefs.last_report = _status
+    _schedule_warmup(prefs, front, back, targets)
     return _status
 
 
@@ -515,6 +502,94 @@ def _build_overlay_items(prefs, front: str, back: str, progress):
     totals["kept"] = stats.get("kept", 0)
     totals["locales"] = len(items)
     return items, totals
+
+
+def _cached_mo_ready(fingerprint: str) -> bool:
+    path = core.cached_overlay_path(fingerprint)
+    return bool(path and os.path.isfile(path))
+
+
+_warmup_job = None
+
+
+def _schedule_warmup(prefs, front: str, back: str, targets):
+    """Build Front/Back/Both overlay files in the background after a successful apply."""
+    global _warmup_job
+    pending = []
+    for mode in DISPLAY_ORDER:
+        fp = core.overlay_fingerprint(
+            front,
+            back,
+            mode,
+            prefs.style,
+            prefs.skip_untranslated,
+            prefs.skip_identical,
+            prefs.skip_multiline,
+            prefs.max_length,
+            prefs.apply_all_locales,
+            targets,
+        )
+        if not _cached_mo_ready(fp):
+            pending.append(mode)
+    if not pending:
+        return
+    _warmup_job = {
+        "front": front,
+        "back": back,
+        "targets": list(targets),
+        "pending": pending,
+        "style": prefs.style,
+        "skip_untranslated": prefs.skip_untranslated,
+        "skip_identical": prefs.skip_identical,
+        "skip_multiline": prefs.skip_multiline,
+        "max_length": prefs.max_length,
+        "apply_all": prefs.apply_all_locales,
+    }
+    if not bpy.app.timers.is_registered(_warmup_step):
+        bpy.app.timers.register(_warmup_step, first_interval=0.4)
+
+
+def _warmup_step():
+    global _warmup_job
+    job = _warmup_job
+    if not job or not job.get("pending"):
+        _warmup_job = None
+        return None
+    mode = job["pending"].pop(0)
+    fp = core.overlay_fingerprint(
+        job["front"],
+        job["back"],
+        mode,
+        job["style"],
+        job["skip_untranslated"],
+        job["skip_identical"],
+        job["skip_multiline"],
+        job["max_length"],
+        job["apply_all"],
+        job["targets"],
+    )
+    if not _cached_mo_ready(fp):
+        seed = job["targets"][0] if job["targets"] else job["front"]
+        if mode == "FRONT":
+            catalog, _stats = core.build_mono_catalog(job["front"], seed_locale=seed)
+        elif mode == "BACK":
+            catalog, _stats = core.build_mono_catalog(job["back"], seed_locale=seed)
+        else:
+            catalog, _stats = core.build_full_catalog(
+                job["front"],
+                job["back"],
+                job["style"],
+                skip_untranslated=job["skip_untranslated"],
+                skip_identical=job["skip_identical"],
+                skip_multiline=job["skip_multiline"],
+                max_length=job["max_length"],
+            )
+        if catalog:
+            core.store_overlay_cache(fp, catalog)
+    if job["pending"]:
+        return 0.35
+    _warmup_job = None
+    return None
 
 
 def clear_bilingual():
@@ -859,6 +934,8 @@ def unregister():
         bpy.app.timers.unregister(_poll_language)
     if bpy.app.timers.is_registered(_deferred_apply):
         bpy.app.timers.unregister(_deferred_apply)
+    if bpy.app.timers.is_registered(_warmup_step):
+        bpy.app.timers.unregister(_warmup_step)
     if hasattr(bpy.types, "TOPBAR_HT_upper_bar"):
         try:
             bpy.types.TOPBAR_HT_upper_bar.remove(_draw_topbar)

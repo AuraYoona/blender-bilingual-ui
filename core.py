@@ -1266,26 +1266,62 @@ def _try_replace_official(path: str, catalog: Catalog) -> bool:
 
 
 def unload_catalogs() -> str:
-    """Switch UI language to English so Windows can replace mapped .mo files."""
+    """Unmap the current .mo so Windows can replace it.
+
+    Prefer DEFAULT over en_US: DEFAULT still unmaps the file without a full
+    English UI rebuild, which is what made Front→Back feel like a hitch.
+    """
     prefs = bpy.context.preferences
     if prefs is None:
         return ""
     view = prefs.view
     current = view.language
     try:
-        if current != "en_US":
-            view.language = "en_US"
-        else:
+        if current != "DEFAULT":
             view.language = "DEFAULT"
+        else:
+            view.language = "en_US"
     except Exception:
         return current
     return current
 
 
-def reload_current_language() -> None:
-    """Drop the mapped catalog and load it again from disk."""
+def swap_overlay_files(fingerprint: str, targets: Iterable[str]) -> bool:
+    """Replace live blender.mo files with a cached overlay. Fast path for the header switch."""
+    cache_mo = cached_overlay_path(fingerprint)
+    if not cache_mo or not os.path.isfile(cache_mo):
+        return False
+    paths: List[str] = []
+    for loc in targets:
+        for folder in overlay_folders_for(loc):
+            path = user_mo_path(loc, folder=folder, prepare=False)
+            if path:
+                paths.append(path)
+    if not paths:
+        return False
     previous = unload_catalogs()
-    restore_language(previous)
+    host = ""
+    for loc in targets:
+        if overlay_folders_for(loc):
+            host = canonical_locale(loc)
+            break
+    restore_to = host if host else previous
+    try:
+        state = _load_state()
+        written = list(state.get("user_written") or [])
+        for path in paths:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            shutil.copy2(cache_mo, path)
+            if path not in written:
+                written.append(path)
+        state["user_written"] = written
+        state["fingerprint"] = fingerprint
+        _save_state(state)
+    except OSError:
+        restore_language(restore_to)
+        return False
+    restore_language(restore_to)
+    return True
 
 
 def restore_language(language: str) -> None:
