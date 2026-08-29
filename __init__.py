@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 3, 0),
+    "version": (1, 3, 1),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
@@ -370,6 +370,7 @@ def apply_bilingual(report=None) -> str:
     if core.overlay_cache_hit(fingerprint, targets):
         _registered = True
         _last_locale = core.current_locale()
+        core.reload_current_language()
         _status = _format_status(display, front, back, cached=True)
         prefs.last_report = _status
         return _status
@@ -686,13 +687,22 @@ class BILINGUAL_OT_cycle_display(Operator):
         prefs = _prefs()
         if prefs is None:
             return {"CANCELLED"}
-        if not prefs.enabled:
-            prefs.display_mode = "BILINGUAL"
-            prefs.enabled = True
-            return {"FINISHED"}
-        current = prefs.display_mode if prefs.display_mode in DISPLAY_ORDER else "BILINGUAL"
-        nxt = DISPLAY_ORDER[(DISPLAY_ORDER.index(current) + 1) % len(DISPLAY_ORDER)]
-        prefs.display_mode = nxt
+        global _updating
+        _updating = True
+        try:
+            if not prefs.enabled:
+                prefs.display_mode = "BILINGUAL"
+                prefs.enabled = True
+            else:
+                current = prefs.display_mode if prefs.display_mode in DISPLAY_ORDER else "BILINGUAL"
+                prefs.display_mode = DISPLAY_ORDER[(DISPLAY_ORDER.index(current) + 1) % len(DISPLAY_ORDER)]
+            msg = apply_bilingual(report=self.report)
+        except Exception as exc:
+            self.report({"ERROR"}, str(exc))
+            return {"CANCELLED"}
+        finally:
+            _updating = False
+        self.report({"INFO"}, msg)
         return {"FINISHED"}
 
 

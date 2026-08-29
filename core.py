@@ -1250,6 +1250,12 @@ def unload_catalogs() -> str:
     return current
 
 
+def reload_current_language() -> None:
+    """Drop the mapped catalog and load it again from disk."""
+    previous = unload_catalogs()
+    restore_language(previous)
+
+
 def restore_language(language: str) -> None:
     if not language:
         return
