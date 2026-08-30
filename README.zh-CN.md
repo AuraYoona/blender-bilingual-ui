@@ -76,3 +76,6 @@ Blender 自己的界面语言可以保持不变。双语写进当前 UI 正在�
 ## 许可
 
 [GPL-3.0-or-later](LICENSE)
+
+##
+https://linux.do/
