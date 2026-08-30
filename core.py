@@ -818,10 +818,7 @@ def set_ui_language(locale: str) -> bool:
     if prefs is None:
         return False
     try:
-        if hasattr(prefs.view, "use_translate_interface"):
-            prefs.view.use_translate_interface = True
-        prefs.view.language = loc
-        redraw_ui()
+        restore_language(loc)
         return True
     except Exception:
         return False
@@ -1265,25 +1262,33 @@ def _try_replace_official(path: str, catalog: Catalog) -> bool:
         return False
 
 
-def unload_catalogs() -> str:
-    """Unmap the current .mo so Windows can replace it.
+BOUNCE_CANDIDATES = ("en_US", "zh_HANS", "ja_JP", "fr_FR", "DEFAULT")
 
-    DEFAULT is not enough: if the OS locale is Chinese, Blender keeps the
-    zh_HANS catalog mapped. Bounce through a real other language instead.
+
+def unload_catalogs(avoid: str = "") -> str:
+    """Unmap the current .mo so it can be replaced, then reloaded.
+
+    The bounce target must differ from the language we will restore to.
+    Blender only rereads the catalog when view.language actually changes, so
+    landing on the restore target here would make the final assignment a no-op
+    and leave the stale catalog mapped until restart.
     """
     prefs = bpy.context.preferences
     if prefs is None:
         return ""
     view = prefs.view
     current = view.language
-    bounce = "en_US" if current not in {"en_US", "DEFAULT"} else "zh_HANS"
-    try:
-        view.language = bounce
-    except Exception:
+    avoid_norm = canonical_locale(avoid) if avoid else ""
+    for candidate in BOUNCE_CANDIDATES:
+        if candidate == current:
+            continue
+        if avoid_norm and canonical_locale(candidate) == avoid_norm:
+            continue
         try:
-            view.language = "DEFAULT"
+            view.language = candidate
+            break
         except Exception:
-            return current
+            continue
     return current
 
 
@@ -1300,12 +1305,12 @@ def swap_overlay_files(fingerprint: str, targets: Iterable[str]) -> bool:
                 paths.append(path)
     if not paths:
         return False
-    previous = unload_catalogs()
     host = ""
     for loc in targets:
         if overlay_folders_for(loc):
             host = canonical_locale(loc)
             break
+    previous = unload_catalogs(avoid=host)
     restore_to = host if host else previous
     try:
         state = _load_state()
@@ -1337,15 +1342,30 @@ def swap_overlay_files(fingerprint: str, targets: Iterable[str]) -> bool:
 
 
 def restore_language(language: str) -> None:
+    """Set the UI language, guaranteeing the RNA update fires.
+
+    Assigning the value it already holds does nothing, so bounce first when
+    the target is already selected — otherwise a replaced .mo is never reread.
+    """
     if not language:
         return
     prefs = bpy.context.preferences
     if prefs is None:
         return
+    view = prefs.view
     try:
-        if hasattr(prefs.view, "use_translate_interface"):
-            prefs.view.use_translate_interface = True
-        prefs.view.language = language
+        if hasattr(view, "use_translate_interface"):
+            view.use_translate_interface = True
+        if view.language == language:
+            for candidate in BOUNCE_CANDIDATES:
+                if candidate == language:
+                    continue
+                try:
+                    view.language = candidate
+                    break
+                except Exception:
+                    continue
+        view.language = language
     except Exception:
         pass
     redraw_ui()
@@ -1382,12 +1402,12 @@ def install_overlays(
         overlay_folders.extend(overlay_folders_for(loc))
     overlay_folders = list(dict.fromkeys(overlay_folders))
 
-    previous = unload_catalogs()
     host = ""
     for loc, cat in items:
         if cat and overlay_folders_for(loc):
             host = canonical_locale(loc)
             break
+    previous = unload_catalogs(avoid=host)
     restore_to = host if host else previous
     try:
         keep_paths = set()

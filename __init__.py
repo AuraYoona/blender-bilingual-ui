@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 3, 4),
+    "version": (1, 3, 5),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
