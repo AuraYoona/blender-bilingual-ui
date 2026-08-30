@@ -76,3 +76,5 @@ Filtered entries keep their original translation, so nothing falls back to Engli
 ## License
 
 [GPL-3.0-or-later](LICENSE)
+
+https://linux.do/
