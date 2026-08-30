@@ -1039,6 +1039,7 @@ def store_overlay_cache(fingerprint: str, catalog: Catalog) -> Optional[str]:
     path = cached_overlay_path(fingerprint, create=True)
     if not path or not catalog:
         return None
+    store_workspace_labels(fingerprint, catalog)
     if os.path.isfile(path):
         return path
     write_mo(path, catalog)
@@ -1054,6 +1055,13 @@ def store_overlay_cache(fingerprint: str, catalog: Catalog) -> Optional[str]:
                 os.remove(old)
         except OSError:
             pass
+        sidecar = old[:-3] + ".ws.json" if old.endswith(".mo") else ""
+        if sidecar:
+            try:
+                if os.path.isfile(sidecar):
+                    os.remove(sidecar)
+            except OSError:
+                pass
     state["cache_files"] = kept
     _save_state(state)
     return path
@@ -1064,6 +1072,187 @@ def load_cached_overlay(fingerprint: str) -> Optional[Catalog]:
     if not path or not os.path.isfile(path):
         return None
     return parse_mo(path)
+
+
+# ---------------------------------------------------------------------------
+# Workspace tab names
+#
+# Blender translates data-block names when a file loads ("New Data" in
+# Preferences > Interface > Translation), so the workspace tabs are literal ID
+# names like "布局 (Layout)" — not catalog lookups. Swapping catalogs mid
+# session cannot change them; the add-on has to rename the data-blocks.
+# ---------------------------------------------------------------------------
+
+WORKSPACE_CTX = "WorkSpace"
+
+
+def workspace_labels(catalog: Optional[Catalog]) -> Dict[str, str]:
+    """msgid -> displayed text, for the context workspace names use.
+
+    Only the WorkSpace context: the default context holds the whole UI, and
+    matching against that could rename a workspace to an unrelated string.
+    """
+    labels: Dict[str, str] = {}
+    if not catalog:
+        return labels
+    for ctx, msgid in catalog:
+        if ctx != WORKSPACE_CTX or not msgid:
+            continue
+        text = catalog[(ctx, msgid)]
+        if text:
+            labels[msgid] = text
+    return labels
+
+
+def _sidecar_path(fingerprint: str, create: bool = False) -> str:
+    root = cache_root(create=create)
+    if not root or not fingerprint:
+        return ""
+    return os.path.join(root, fingerprint + ".ws.json")
+
+
+def store_workspace_labels(fingerprint: str, catalog: Catalog) -> None:
+    path = _sidecar_path(fingerprint, create=True)
+    if not path:
+        return
+    labels = workspace_labels(catalog)
+    if not labels:
+        return
+    try:
+        with open(path, "w", encoding="utf-8") as handle:
+            json.dump(labels, handle, ensure_ascii=False)
+    except OSError:
+        pass
+
+
+def cached_workspace_labels(fingerprint: str) -> Dict[str, str]:
+    path = _sidecar_path(fingerprint)
+    if not path or not os.path.isfile(path):
+        return {}
+    try:
+        with open(path, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError):
+        return {}
+
+
+def all_cached_workspace_labels() -> List[Dict[str, str]]:
+    root = cache_root()
+    if not root or not os.path.isdir(root):
+        return []
+    out: List[Dict[str, str]] = []
+    try:
+        names = os.listdir(root)
+    except OSError:
+        return out
+    for name in names:
+        if not name.endswith(".ws.json"):
+            continue
+        try:
+            with open(os.path.join(root, name), "r", encoding="utf-8") as handle:
+                data = json.load(handle)
+        except (OSError, ValueError):
+            continue
+        if isinstance(data, dict):
+            out.append(data)
+    return out
+
+
+def apply_workspace_names(
+    labels: Dict[str, str], reverse_sources: Iterable[Dict[str, str]] = ()
+) -> int:
+    """Rename workspace data-blocks so the tabs match the active display mode."""
+    if not labels:
+        return 0
+    try:
+        workspaces = list(bpy.data.workspaces)
+    except Exception:
+        return 0
+    if not workspaces:
+        return 0
+
+    reverse: Dict[str, str] = {}
+    for source in reverse_sources:
+        for msgid, text in source.items():
+            if text:
+                reverse.setdefault(text, msgid)
+    for msgid, text in labels.items():
+        if text:
+            reverse.setdefault(text, msgid)
+
+    state = _load_state()
+    known = dict(state.get("workspace_msgids") or {})
+    mapping: Dict[str, str] = {}
+    renamed = 0
+
+    def infer(name: str) -> str:
+        """Recover the msgid from an already-formatted name like '布局 (Layout)'."""
+        best = ""
+        for source in list(reverse_sources) + [labels]:
+            for msgid, text in source.items():
+                if not text or msgid == text:
+                    continue
+                if msgid in name and text in name and len(msgid) > len(best):
+                    best = msgid
+        return best
+
+    for workspace in workspaces:
+        name = workspace.name
+        msgid = (
+            known.get(name)
+            or reverse.get(name)
+            or (name if name in labels else "")
+            or infer(name)
+        )
+        if not msgid:
+            continue
+        desired = labels.get(msgid, msgid)
+        if desired and desired != name:
+            try:
+                workspace.name = desired
+                renamed += 1
+            except Exception:
+                pass
+        mapping[workspace.name] = msgid
+
+    if mapping:
+        known.update(mapping)
+        state["workspace_msgids"] = known
+        _save_state(state)
+    return renamed
+
+
+def sync_workspace_names(
+    fingerprint: str = "",
+    catalog: Optional[Catalog] = None,
+    official_locale: str = "",
+) -> int:
+    labels = workspace_labels(catalog) if catalog else {}
+    if not labels and fingerprint:
+        labels = cached_workspace_labels(fingerprint)
+    if not labels:
+        return 0
+    sources = all_cached_workspace_labels()
+    if official_locale:
+        official = workspace_labels(load_catalog(official_locale))
+        if official:
+            sources.append(official)
+    return apply_workspace_names(labels, sources)
+
+
+def restore_workspace_names(locale: str = "") -> int:
+    """Put the official (or English) workspace names back."""
+    sources = all_cached_workspace_labels()
+    official = workspace_labels(load_catalog(locale)) if locale else {}
+    if not official:
+        ids = set()
+        for source in sources:
+            ids.update(source.keys())
+        official = {msgid: msgid for msgid in ids}
+    if not official:
+        return 0
+    return apply_workspace_names(official, sources)
 
 
 def prune_overlay_cache() -> None:

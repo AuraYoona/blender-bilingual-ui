@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 3, 5),
+    "version": (1, 4, 0),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
@@ -197,6 +197,16 @@ class BilingualPreferences(AddonPreferences):
         default=True,
     )
 
+    rename_workspaces: BoolProperty(
+        name="Rename Workspace Tabs",
+        description=(
+            "Also rename the workspace data-blocks (Layout, Modeling, …). "
+            "Blender translates those names when a file loads, so the tabs "
+            "cannot follow a catalog swap on their own"
+        ),
+        default=True,
+    )
+
     last_report: StringProperty(
         name="Last Report",
         default="",
@@ -241,6 +251,7 @@ class BilingualPreferences(AddonPreferences):
         box.prop(self, "apply_all_locales")
         box.prop(self, "auto_refresh")
         box.prop(self, "show_header_switch")
+        box.prop(self, "rename_workspaces")
 
         box = col.box()
         box.label(text="Filters", icon="FILTER")
@@ -315,6 +326,8 @@ def apply_bilingual(report=None) -> str:
         return _status
 
     if not prefs.enabled:
+        if prefs.rename_workspaces:
+            core.restore_workspace_names(core.current_locale())
         restore = core.restore_overlays()
         _registered = False
         _status = (
@@ -363,6 +376,10 @@ def apply_bilingual(report=None) -> str:
         if core.swap_overlay_files(fingerprint, targets):
             if core.canonical_locale(core.current_locale()) != core.canonical_locale(host):
                 core.set_ui_language(host)
+            if prefs.rename_workspaces:
+                core.sync_workspace_names(
+                    fingerprint=fingerprint, official_locale=host
+                )
             _registered = True
             _last_locale = core.current_locale()
             _status = _format_status(display, front, back, cached=True)
@@ -405,6 +422,12 @@ def apply_bilingual(report=None) -> str:
     written = core.install_overlays(
         items, progress=progress, fingerprint=fingerprint, cache_mo=cached_mo or ""
     )
+    if prefs.rename_workspaces:
+        core.sync_workspace_names(
+            fingerprint=fingerprint,
+            catalog=catalog,
+            official_locale=targets[0] if targets else front,
+        )
     _registered = True
     _last_locale = core.current_locale()
     _status = _format_status(
@@ -594,13 +617,15 @@ def _warmup_step():
 
 def clear_bilingual():
     global _status, _registered
+    prefs = _prefs()
+    if prefs is None or prefs.rename_workspaces:
+        core.restore_workspace_names(core.current_locale())
     restore = core.restore_overlays()
     _registered = False
     _status = (
         f"Cleared · restored {restore.get('restored', 0)} official catalogs, "
         f"removed {restore.get('removed', 0)} overlays"
     )
-    prefs = _prefs()
     if prefs is not None:
         prefs.last_report = _status
 

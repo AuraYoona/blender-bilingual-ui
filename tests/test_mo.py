@@ -375,5 +375,29 @@ class FingerprintTests(unittest.TestCase):
         self.assertNotEqual(a, core_mod.overlay_fingerprint(**other))
 
 
+class WorkspaceLabelTests(unittest.TestCase):
+    def test_labels_prefer_workspace_context(self):
+        cat = {
+            ("WorkSpace", "Layout"): "布局 (Layout)",
+            ("", "Layout"): "布局别名",
+            ("WorkSpace", "Modeling"): "建模 (Modeling)",
+            ("Operator", "Delete"): "删除 (Delete)",
+        }
+        labels = core_mod.workspace_labels(cat)
+        self.assertEqual(labels["Layout"], "布局 (Layout)")
+        self.assertEqual(labels["Modeling"], "建模 (Modeling)")
+        self.assertNotIn("Delete", labels)
+
+    def test_default_context_is_ignored(self):
+        # The default context holds the whole UI; matching it could rename a
+        # workspace to an unrelated string.
+        cat = {("", "Scripting"): "脚本 (Scripting)", ("", "Some tooltip"): "提示"}
+        self.assertEqual(core_mod.workspace_labels(cat), {})
+
+    def test_empty_catalog(self):
+        self.assertEqual(core_mod.workspace_labels(None), {})
+        self.assertEqual(core_mod.workspace_labels({}), {})
+
+
 if __name__ == "__main__":
     unittest.main()
