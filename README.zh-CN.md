@@ -62,12 +62,10 @@ Blender 自己的界面语言可以保持不变。双语写进当前 UI 正在�
 
 ### 过滤器
 
-- **Skip Untranslated**：两边都没翻译的条目不叠加
-- **Skip Identical**：两种语言结果相同则不叠加
-- **Skip Multiline**：跳过带换行的长 tooltip
-- **Max Source Length**：超过该长度的源字符串忽略（默认 80）
+- **Skip Multiline**：带换行的长 tooltip 只保留一种语言
+- **Max Source Length**：超过该长度的源字符串不叠加（默认 80）
 
-**Apply to All UI Languages** 默认关掉。除非经常切换 Blender 界面语言，否则不要勾——给每种语言都生成一份又慢又占磁盘。
+被过滤的条目保留原译文，不会掉回英文。
 
 ## 兼容
 

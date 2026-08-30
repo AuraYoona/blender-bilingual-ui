@@ -213,21 +213,18 @@ class LocaleTests(unittest.TestCase):
             core_mod.find_mo = orig
 
     def test_should_skip(self):
-        self.assertTrue(
-            should_skip("Scale", "Scale", "Scale", True, True, True, 0)
-        )
-        self.assertTrue(
-            should_skip("a\nb", "a\nb", "c", False, False, True, 0)
-        )
-        self.assertTrue(
-            should_skip("x" * 10, "x", "y", False, False, False, 5)
-        )
-        self.assertFalse(
-            should_skip("Scale", "缩放", "Scale", True, True, True, 80)
-        )
+        # Multiline sources keep their original translation.
+        self.assertTrue(should_skip("a\nb", "a\nb", "c", True, 0))
+        self.assertFalse(should_skip("a\nb", "a\nb", "c", False, 0))
+        # Sources longer than max_length are left alone.
+        self.assertTrue(should_skip("x" * 10, "x", "y", False, 5))
+        self.assertFalse(should_skip("Scale", "缩放", "Scale", True, 80))
+        # Identical sides need no filter: format_pair already collapses them.
+        self.assertFalse(should_skip("Scale", "Scale", "Scale", True, 0))
+        self.assertEqual(format_pair("Scale", "Scale", "A_PAREN_B"), "Scale")
 
 
-class BilingualMapTests(unittest.TestCase):
+class BilingualPairTests(unittest.TestCase):
     def test_chinese_plus_english(self):
         zh = {("*", "Scale"): "缩放", ("Operator", "Delete"): "删除"}
         orig_load = core_mod.load_catalog
@@ -240,7 +237,7 @@ class BilingualMapTests(unittest.TestCase):
 
         core_mod.load_catalog = fake_load
         try:
-            catalog, stats = core_mod.build_bilingual_map(
+            catalog, stats = core_mod.build_full_catalog(
                 "zh_HANS", "en_US", "A_PAREN_B"
             )
         finally:
@@ -261,7 +258,7 @@ class BilingualMapTests(unittest.TestCase):
 
         core_mod.load_catalog = fake_load
         try:
-            catalog, _stats = core_mod.build_bilingual_map(
+            catalog, _stats = core_mod.build_full_catalog(
                 "en_US", "ja_JP", "A_PAREN_B"
             )
         finally:
@@ -284,8 +281,8 @@ class BilingualMapTests(unittest.TestCase):
 
         core_mod.load_catalog = fake_load
         try:
-            catalog, _stats = core_mod.build_bilingual_map(
-                "ja_JP", "zh_HANS", "A_SLASH_B", skip_identical=True
+            catalog, _stats = core_mod.build_full_catalog(
+                "ja_JP", "zh_HANS", "A_SLASH_B"
             )
         finally:
             core_mod.load_catalog = orig_load
@@ -329,8 +326,12 @@ class MoRoundTripTests(unittest.TestCase):
             self.assertEqual(loaded[("Operator", "Delete")], "删除 (Delete)")
             self.assertEqual(loaded[("", "File")], "文件 (File)")
 
-    def test_full_catalog_keeps_skipped(self):
-        zh = {("*", "Scale"): "缩放", ("*", "Same"): "Same"}
+    def test_full_catalog_keeps_untranslatable_entries(self):
+        zh = {
+            ("*", "Scale"): "缩放",
+            ("*", "Same"): "Same",
+            ("*", "A very long source string"): "很长的源字符串",
+        }
         orig_load = core_mod.load_catalog
 
         def fake_load(locale):
@@ -341,14 +342,16 @@ class MoRoundTripTests(unittest.TestCase):
         core_mod.load_catalog = fake_load
         try:
             catalog, stats = core_mod.build_full_catalog(
-                "zh_HANS", "en_US", "A_PAREN_B", skip_identical=True
+                "zh_HANS", "en_US", "A_PAREN_B", max_length=10
             )
         finally:
             core_mod.load_catalog = orig_load
 
         self.assertEqual(catalog[("*", "Scale")], "缩放 (Scale)")
+        # Both sides agree, so format_pair collapses instead of duplicating.
         self.assertEqual(catalog[("*", "Same")], "Same")
-        self.assertEqual(stats["emitted"], 1)
+        # Over max_length: keeps its original translation rather than English.
+        self.assertEqual(catalog[("*", "A very long source string")], "很长的源字符串")
         self.assertEqual(stats["kept"], 1)
 
 
@@ -359,11 +362,8 @@ class FingerprintTests(unittest.TestCase):
             back="en_US",
             display="BILINGUAL",
             style="A_PAREN_B",
-            skip_untranslated=True,
-            skip_identical=True,
             skip_multiline=True,
             max_length=80,
-            apply_all=False,
             targets=["zh_HANS"],
         )
         a = core_mod.overlay_fingerprint(**kwargs)

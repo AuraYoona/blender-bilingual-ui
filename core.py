@@ -20,7 +20,6 @@ import bpy
 
 MsgKey = Tuple[str, str]
 Catalog = Dict[MsgKey, str]
-TranslationsDict = Dict[str, Catalog]
 
 MO_MAGIC_LE = 0x950412DE
 MO_MAGIC_BE = 0xDE120495
@@ -516,91 +515,25 @@ def should_skip(
     msgid: str,
     primary: str,
     secondary: str,
-    skip_untranslated: bool,
-    skip_identical: bool,
     skip_multiline: bool,
     max_length: int,
 ) -> bool:
+    """Whether an entry keeps its original translation instead of being paired.
+
+    Identical/untranslated pairs need no check here: format_pair already
+    returns the primary text when the two sides match.
+    """
     if skip_multiline and ("\n" in msgid or "\n" in primary or "\n" in secondary):
         return True
     if max_length > 0 and len(msgid) > max_length:
         return True
-    if skip_identical and primary == secondary:
-        return True
-    if skip_untranslated and primary == msgid and secondary == msgid:
-        return True
     return False
-
-
-def build_bilingual_map(
-    primary_locale: str,
-    secondary_locale: str,
-    style: str,
-    skip_untranslated: bool = True,
-    skip_identical: bool = True,
-    skip_multiline: bool = True,
-    max_length: int = 0,
-    progress: Optional[Callable[[str], None]] = None,
-) -> Tuple[Catalog, Dict[str, int]]:
-    """Build {(ctx, msgid): bilingual} for one UI locale."""
-    stats = {
-        "primary_entries": 0,
-        "secondary_entries": 0,
-        "emitted": 0,
-        "skipped": 0,
-    }
-
-    primary_cat = load_catalog(primary_locale)
-    secondary_cat = load_catalog(secondary_locale)
-
-    if primary_cat is not None:
-        stats["primary_entries"] = len(primary_cat)
-    if secondary_cat is not None:
-        stats["secondary_entries"] = len(secondary_cat)
-
-    if primary_cat is None and secondary_cat is None:
-        if progress:
-            progress("Both languages are English / missing catalogs.")
-        return {}, stats
-
-    # Walk the richer side so English-as-primary still gets keys.
-    if primary_cat is not None:
-        keys: Iterable[MsgKey] = primary_cat.keys()
-    else:
-        keys = secondary_cat.keys()  # type: ignore[union-attr]
-
-    result: Catalog = {}
-    for ctx, msgid in keys:
-        primary = lookup(primary_cat, ctx, msgid)
-        secondary = lookup(secondary_cat, ctx, msgid)
-        if should_skip(
-            msgid,
-            primary,
-            secondary,
-            skip_untranslated,
-            skip_identical,
-            skip_multiline,
-            max_length,
-        ):
-            stats["skipped"] += 1
-            continue
-        result[(ctx, msgid)] = format_pair(primary, secondary, style)
-        stats["emitted"] += 1
-
-    if progress:
-        progress(
-            f"{primary_locale}+{secondary_locale}: "
-            f"{stats['emitted']} bilingual, {stats['skipped']} skipped"
-        )
-    return result, stats
 
 
 def build_full_catalog(
     primary_locale: str,
     secondary_locale: str,
     style: str,
-    skip_untranslated: bool = True,
-    skip_identical: bool = True,
     skip_multiline: bool = True,
     max_length: int = 0,
     progress: Optional[Callable[[str], None]] = None,
@@ -646,8 +579,6 @@ def build_full_catalog(
             msgid,
             primary,
             secondary,
-            skip_untranslated,
-            skip_identical,
             skip_multiline,
             max_length,
         ):
@@ -824,60 +755,6 @@ def set_ui_language(locale: str) -> bool:
         return False
 
 
-def build_translations_dict(
-    secondary_locale: str,
-    style: str,
-    apply_all_locales: bool,
-    skip_untranslated: bool,
-    skip_identical: bool,
-    skip_multiline: bool,
-    max_length: int,
-    progress: Optional[Callable[[str], None]] = None,
-) -> Tuple[TranslationsDict, Dict[str, int]]:
-    """Build the dict expected by bpy.app.translations.register()."""
-    active = current_locale()
-    locales = [active]
-    if apply_all_locales:
-        extra = [code for code, _label, mo in discover_locales() if mo]
-        for code in extra:
-            if code not in locales:
-                locales.append(code)
-        if "en_US" not in locales:
-            locales.append("en_US")
-
-    merged: TranslationsDict = {}
-    totals = {
-        "primary_entries": 0,
-        "secondary_entries": 0,
-        "emitted": 0,
-        "skipped": 0,
-        "locales": 0,
-    }
-
-    for loc in locales:
-        catalog, stats = build_bilingual_map(
-            loc,
-            secondary_locale,
-            style,
-            skip_untranslated=skip_untranslated,
-            skip_identical=skip_identical,
-            skip_multiline=skip_multiline,
-            max_length=max_length,
-            progress=progress,
-        )
-        if not catalog:
-            continue
-        for key in locale_keys(loc):
-            merged[key] = catalog
-        totals["locales"] += 1
-        totals["emitted"] += stats["emitted"]
-        totals["skipped"] += stats["skipped"]
-        totals["primary_entries"] = max(totals["primary_entries"], stats["primary_entries"])
-        totals["secondary_entries"] = max(totals["secondary_entries"], stats["secondary_entries"])
-
-    return merged, totals
-
-
 def locale_keys(locale: str) -> List[str]:
     loc = canonical_locale(locale)
     keys = {loc, locale}
@@ -961,11 +838,8 @@ def overlay_fingerprint(
     back: str,
     display: str,
     style: str,
-    skip_untranslated: bool,
-    skip_identical: bool,
     skip_multiline: bool,
     max_length: int,
-    apply_all: bool,
     targets: Iterable[str],
 ) -> str:
     """Stable id for a generated overlay. Source .mo mtimes are included so a
@@ -977,11 +851,8 @@ def overlay_fingerprint(
         f"back={canonical_locale(back)}",
         f"display={display}",
         f"style={style}",
-        f"skip_u={int(skip_untranslated)}",
-        f"skip_i={int(skip_identical)}",
         f"skip_m={int(skip_multiline)}",
         f"max={max_length}",
-        f"all={int(apply_all)}",
         "targets=" + ",".join(sorted({canonical_locale(t) for t in targets})),
     ]
     locales = {canonical_locale(front), canonical_locale(back)}

@@ -43,7 +43,7 @@ core = _load_catalogs()
 bl_info = {
     "name": "Bilingual UI",
     "author": "AuraYoona",
-    "version": (1, 4, 0),
+    "version": (1, 5, 0),
     "blender": (3, 6, 0),
     "location": "Preferences > Add-ons > Bilingual UI",
     "description": "Show Blender's UI in two languages at once (any official locale pair)",
@@ -156,27 +156,6 @@ class BilingualPreferences(AddonPreferences):
         default="A_PAREN_B",
     )
 
-    apply_all_locales: BoolProperty(
-        name="Apply to All UI Languages",
-        description=(
-            "Write the same Front+Back pair into every installed locale folder. "
-            "Leave off unless you switch Blender's UI language often — it is much slower"
-        ),
-        default=False,
-    )
-
-    skip_untranslated: BoolProperty(
-        name="Skip Untranslated",
-        description="Do not overlay strings that have no translation in either language",
-        default=True,
-    )
-
-    skip_identical: BoolProperty(
-        name="Skip Identical",
-        description="Do not overlay when both languages produce the same text",
-        default=True,
-    )
-
     skip_multiline: BoolProperty(
         name="Skip Multiline",
         description="Ignore tooltips and other strings that contain line breaks",
@@ -248,15 +227,12 @@ class BilingualPreferences(AddonPreferences):
         if preview:
             box.label(text=f"Preview:  {preview}", icon="HIDE_OFF")
         box.prop(self, "display_mode", expand=True)
-        box.prop(self, "apply_all_locales")
         box.prop(self, "auto_refresh")
         box.prop(self, "show_header_switch")
         box.prop(self, "rename_workspaces")
 
         box = col.box()
         box.label(text="Filters", icon="FILTER")
-        box.prop(self, "skip_untranslated")
-        box.prop(self, "skip_identical")
         box.prop(self, "skip_multiline")
         box.prop(self, "max_length")
 
@@ -363,11 +339,8 @@ def apply_bilingual(report=None) -> str:
         back,
         display,
         prefs.style,
-        prefs.skip_untranslated,
-        prefs.skip_identical,
         prefs.skip_multiline,
         prefs.max_length,
-        prefs.apply_all_locales,
         targets,
     )
 
@@ -470,20 +443,11 @@ def _pair_from_prefs(prefs):
 
 
 def _write_targets(prefs, front: str, back: str = "") -> list[str]:
-    """Folders Blender will actually load.
+    """The single locale folder Blender will load the overlay from.
 
     English has no blender.mo. If the UI is English, host the overlay in the
     first non-English language of the pair and switch the UI to that locale.
     """
-    if prefs.apply_all_locales:
-        targets = [code for code, _label, mo in core.discover_locales() if mo]
-        current = core.current_locale()
-        if current not in targets and not core.is_english(current):
-            targets.append(current)
-        if front not in targets and not core.is_english(front):
-            targets.append(front)
-        return [t for t in targets if not core.is_english(t)]
-
     current = core.current_locale()
     if not core.is_english(current) and core.overlay_folders_for(current):
         return [current]
@@ -511,8 +475,6 @@ def _build_overlay_items(prefs, front: str, back: str, progress):
             front,
             back,
             prefs.style,
-            skip_untranslated=prefs.skip_untranslated,
-            skip_identical=prefs.skip_identical,
             skip_multiline=prefs.skip_multiline,
             max_length=prefs.max_length,
             progress=progress,
@@ -545,11 +507,8 @@ def _schedule_warmup(prefs, front: str, back: str, targets):
             back,
             mode,
             prefs.style,
-            prefs.skip_untranslated,
-            prefs.skip_identical,
             prefs.skip_multiline,
             prefs.max_length,
-            prefs.apply_all_locales,
             targets,
         )
         if not _cached_mo_ready(fp):
@@ -562,11 +521,8 @@ def _schedule_warmup(prefs, front: str, back: str, targets):
         "targets": list(targets),
         "pending": pending,
         "style": prefs.style,
-        "skip_untranslated": prefs.skip_untranslated,
-        "skip_identical": prefs.skip_identical,
         "skip_multiline": prefs.skip_multiline,
         "max_length": prefs.max_length,
-        "apply_all": prefs.apply_all_locales,
     }
     if not bpy.app.timers.is_registered(_warmup_step):
         bpy.app.timers.register(_warmup_step, first_interval=0.4)
@@ -584,11 +540,8 @@ def _warmup_step():
         job["back"],
         mode,
         job["style"],
-        job["skip_untranslated"],
-        job["skip_identical"],
         job["skip_multiline"],
         job["max_length"],
-        job["apply_all"],
         job["targets"],
     )
     if not _cached_mo_ready(fp):
@@ -602,8 +555,6 @@ def _warmup_step():
                 job["front"],
                 job["back"],
                 job["style"],
-                skip_untranslated=job["skip_untranslated"],
-                skip_identical=job["skip_identical"],
                 skip_multiline=job["skip_multiline"],
                 max_length=job["max_length"],
             )
@@ -692,9 +643,6 @@ def _watch_language():
     current = core.current_locale()
     global _last_locale
     if current == _last_locale:
-        return
-    if prefs.apply_all_locales and _registered:
-        _last_locale = current
         return
     if not bpy.app.timers.is_registered(_deferred_apply):
         bpy.app.timers.register(_deferred_apply, first_interval=0.2)

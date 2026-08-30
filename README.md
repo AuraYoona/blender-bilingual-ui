@@ -62,12 +62,10 @@ Blender’s own UI language can stay as it is. The overlay is written into the c
 
 ### Filters
 
-- **Skip Untranslated** — skip strings with no translation in either language
-- **Skip Identical** — skip when both languages produce the same text
-- **Skip Multiline** — skip long tooltips with line breaks
-- **Max Source Length** — ignore source strings longer than this (default 80)
+- **Skip Multiline** — leave tooltips with line breaks in one language
+- **Max Source Length** — leave source strings longer than this alone (default 80)
 
-Leave **Apply to All UI Languages** off unless you switch Blender’s UI language often. Building every locale is slow and uses a lot of disk.
+Filtered entries keep their original translation, so nothing falls back to English.
 
 ## Compatibility
 
